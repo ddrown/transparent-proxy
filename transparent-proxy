@@ -1,0 +1,77 @@
+#!/usr/bin/perl
+
+use strict;
+use IO::Socket::INET6;
+use IO::Select;
+use TransProxy::Connection;
+
+sub accept_connection {
+  my($listen_socket) = @_;
+
+  my $socket = $listen_socket->accept() or die("accept failed: $!");
+  return TransProxy::Connection->new($socket);
+}
+
+my $listen_socket = IO::Socket::INET6->new(
+		LocalPort => 12345,
+		Proto => "tcp",
+		ReuseAddr => 1,
+		Listen => 10
+		);
+my $sel_read = IO::Select->new($listen_socket);
+my $sel_write = IO::Select->new();
+
+my(%socks_write_stage,%socks_read_stage,%xfer_stage);
+
+while(1) {
+  while(my($read,$write) = IO::Select->select($sel_read,$sel_write)) {
+    foreach my $fh (@$read) {
+      if($fh == $listen_socket) {
+        my($connection) = accept_connection($listen_socket);
+        print "new connection for ",join(":",$connection->server())," via ",$connection->socks_port(),"\n";
+        $socks_write_stage{$connection->socks_client} = $connection;
+        $sel_write->add($connection->socks_client);
+      } elsif(defined $socks_read_stage{$fh}) {
+#        print "socks read stage for $fh\n";
+        my $state = $socks_read_stage{$fh}->socks_stage_read();
+        if($state > 0) {
+#	  print "socks read stage for $fh, done\n";
+          my $connection = $socks_read_stage{$fh};
+          $xfer_stage{$fh} = $connection;
+          $xfer_stage{$connection->local_socket()} = $connection;
+          $sel_read->add($connection->local_socket());
+          delete($socks_read_stage{$fh});
+        } elsif($state < 0) {
+          my $connection = $socks_read_stage{$fh};
+	  print "socks connection '",join(":",$connection->server()),"' failed: ",$connection->socks_error(),"\n";
+          $sel_read->remove($fh);
+          delete($socks_read_stage{$fh});
+        }
+      } elsif(defined $xfer_stage{$fh}) {
+#	print "xfer stage for $fh\n";
+        if($xfer_stage{$fh}->xfer($fh)) {
+#	  print "xfer stage for $fh, done\n";
+          delete($xfer_stage{$fh}); # relying on destructor closing socket
+          $sel_read->remove($fh);
+        }
+      } else {
+        print "unknown socket $fh (read)";
+      }
+    }
+    foreach my $fh (@$write) {
+      if(defined $socks_write_stage{$fh}) {
+#        print "socks write stage for $fh\n";
+        if($socks_write_stage{$fh}->socks_stage_write()) {
+#	  print "socks write stage for $fh, done\n";
+          my $connection = $socks_write_stage{$fh};
+          $socks_read_stage{$fh} = $connection;
+          $sel_read->add($connection->socks_client());
+          $sel_write->remove($connection->socks_client());
+          delete($socks_write_stage{$fh});
+        }
+      } else {
+        print "unknown socket $fh (write)";
+      }
+    }
+  }
+}

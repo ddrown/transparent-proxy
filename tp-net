@@ -1,0 +1,22 @@
+#!/usr/bin/perl
+
+use strict;
+use Socket;
+use Socket6;
+
+my($port,$ip) = @ARGV;
+
+my($v6) = inet_pton(AF_INET6,"fd00::");
+$v6 = substr($v6,0,10) . pack("n",$port);
+
+if(defined $ip) {
+  my($v4) = inet_pton(AF_INET,$ip);
+  $v6 = $v6 . $v4;
+  print inet_ntop(AF_INET6,$v6),"\n";
+} else {
+  $v6 = $v6 . pack("N",0);
+  my $subnet = inet_ntop(AF_INET6,$v6);
+  $subnet =~ s/:0:0$/:/;
+  print $subnet,"\n";
+}
+
