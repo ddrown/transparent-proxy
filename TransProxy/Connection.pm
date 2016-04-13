@@ -85,10 +85,12 @@ sub xfer {
   }
 
   if(sysread($fh, $data, 4096) <= 0) {
-    return 1; # TODO: shutdown other end
+    return(1,$other_fh);
   }
   # TODO: better error detection (blocked, one way)
-  print $other_fh $data;
+  if(syswrite($other_fh, $data) <= 0) {
+    return(1,$other_fh);
+  }
   return 0;
 }
 

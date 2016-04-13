@@ -23,6 +23,8 @@ my $sel_write = IO::Select->new();
 
 my(%socks_write_stage,%socks_read_stage,%xfer_stage);
 
+$SIG{PIPE} = "IGNORE";
+
 while(1) {
   while(my($read,$write) = IO::Select->select($sel_read,$sel_write)) {
     foreach my $fh (@$read) {
@@ -49,10 +51,13 @@ while(1) {
         }
       } elsif(defined $xfer_stage{$fh}) {
 #	print "xfer stage for $fh\n";
-        if($xfer_stage{$fh}->xfer($fh)) {
-#	  print "xfer stage for $fh, done\n";
+        my($done,$other_fh) = $xfer_stage{$fh}->xfer($fh);
+        if($done) {
+          print "xfer done for $fh and $other_fh\n";
           delete($xfer_stage{$fh}); # relying on destructor closing socket
+          delete($xfer_stage{$other_fh}); # relying on destructor closing socket
           $sel_read->remove($fh);
+          $sel_read->remove($other_fh);
         }
       } else {
         print "unknown socket $fh (read)";
