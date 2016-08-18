@@ -3,8 +3,42 @@
 use strict;
 use Socket;
 use Socket6;
+use Getopt::Long;
+use FindBin;
 
-my($port,$ip) = @ARGV;
+sub find_relay {
+  my($relay) = @_;
+
+  my(%relays);
+  open(RELAY_CONF,"<","$FindBin::RealBin/relay.conf") or die ("relay.conf not found\n");
+  while(<RELAY_CONF>) {
+    s/#.*//;
+    if(/^(\d+) (\S+)/) {
+      $relays{$2} = $1;
+    }
+  }
+  close(RELAY_CONF);
+
+  if(not $relays{$relay}) {
+    die("relay $relay not found in relay.conf\n");
+  }
+
+  return $relays{$relay};
+}
+
+my($port,$ip,$relay);
+GetOptions ("ip=s" => \$ip,
+    "port=i"   => \$port,
+    "relay=s" => \$relay)
+or die("Error in command line arguments\n");
+
+if($relay) {
+  $port = find_relay($relay);
+}
+
+if(not $port or not $ip) {
+  die("I need --port/--relay and --ip\n");
+}
 
 my($v6) = inet_pton(AF_INET6,"fd00::");
 $v6 = substr($v6,0,10) . pack("n",$port);
